@@ -1,14 +1,18 @@
-//  
-// Simulação de propagação de vírus.
-// Adaptada de um código proposto por David Joiner (Kean University).
 //
-// Uso: virusim <tamanho-da-populacao> <nro. experimentos> <probab. maxima> 
+// SimulaÃ§ao de propagaÃ§ao de virus.
+// Adaptada de um codigo proposto por David Joiner (Kean University).
+//
+// Uso: OMP_NUM_THREADS= <nro. de threads> virusim <tamanho-da-populacao> <nro. experimentos> <probab. maxima>
 
 #include <cstdio>
+#include <vector>
+#include <omp.h>
 #include <cstdlib>
 #include <iostream>
 #include "Random.h"
 #include "Population.h"
+
+using namespace std;
 
 void
 checkCommandLine(int argc, char** argv, int& size, int& trials, int& probs)
@@ -24,16 +28,16 @@ checkCommandLine(int argc, char** argv, int& size, int& trials, int& probs)
    }   
 }
 
-int 
-main(int argc, char* argv[]) 
+int
+main(int argc, char* argv[])
 {
-   
-   // parâmetros dos experimentos
+
+   // parametros dos experimentos
    int population_size = 30;
    int n_trials = 5000;
    int n_probs = 101;
 
-   double* percent_infected; // percentuais de infectados (saída)
+   double* percent_infected; // percentuais de infectados (saida)
    double* prob_spread;      // probabilidades a serem testadas (entrada)
    double prob_min = 0.0;
    double prob_max = 1.0;
@@ -41,10 +45,11 @@ main(int argc, char* argv[])
    int base_seed = 100;
 
    checkCommandLine(argc, argv, population_size, n_trials, n_probs);
-    
-   try {
 
-      Population* population = new Population(population_size);
+   try {
+      Population** pp = (Population**)malloc(omp_get_max_threads()*sizeof(Population*));
+	  for(int t = 0; t < omp_get_max_threads(); t++)
+	  	pp[t] = new Population(population_size);
       Random rand;
 
       prob_spread = new double[n_probs];
@@ -54,26 +59,29 @@ main(int argc, char* argv[])
 
       printf("Probabilidade, Percentual Infectado\n");
 
-      // para cada probabilidade, calcula o percentual de pessoas infectadas
+      //para cada probabilidade, calcula o percentual de pessoas infectadas
       for (int ip = 0; ip < n_probs; ip++) {
-
          prob_spread[ip] = prob_min + (double) ip * prob_step;
          percent_infected[ip] = 0.0;
-         rand.setSeed(base_seed+ip); // nova seqüência de números aleatórios
+         rand.setSeed(base_seed+ip); // nova sequencia de numeros aleatorios
 
-         // executa vários experimentos para esta probabilidade
+         // executa varios experimentos para esta probabilidade
+         #pragma omp parallel for schedule(guided) 
          for (int it = 0; it < n_trials; it++) {
-            // queima floresta até o fogo apagar
-            population->propagateUntilOut(population->centralPerson(), prob_spread[ip], rand);
-            percent_infected[ip] += population->getPercentInfected();
+            // queima floresta ate o fogo apagar
+            pp[omp_get_thread_num()]->propagateUntilOut(pp[omp_get_thread_num()]->centralPerson(), prob_spread[ip], rand);
+	    #pragma omp atomic
+            percent_infected[ip] += pp[omp_get_thread_num()]->getPercentInfected();
          }
 
-         // calcula média dos percentuais de árvores queimadas
+         // calcula media dos percentuais de arvores queimadas
          percent_infected[ip] /= n_trials;
 
          // mostra resultado para esta probabilidade
          printf("%lf, %lf\n", prob_spread[ip], percent_infected[ip]);
       }
+      for(int i = 0; i <  n_probs; i++)
+         printf("%lf, %lf\n", prob_spread[i], percent_infected[i]);
 
       delete[] prob_spread;
       delete[] percent_infected;
